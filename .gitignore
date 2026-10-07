@@ -1,6 +1,13 @@
-data/
-data_smoke/
+# ambiente e caches
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# dados, índices, cache de LLM e resultados (gerados em tempo de execução)
+ragbench_data/
+ragbench_results/
+
+# arquivos de editor
+*.code-workspace
+.vscode/

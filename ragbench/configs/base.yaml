@@ -1,0 +1,135 @@
+# =============================================================================
+#  ragbench — configuração base (modelos locais servidos pelo Ollama)
+#  Perfis (configs/profiles/*.yaml) sobrescrevem estas chaves.
+#  Qualquer chave pode ser trocada na linha de comando:  --set models.generator=qwen2.5:7b
+# =============================================================================
+seed: 13
+
+paths:
+  data: ragbench_data                 # relativo à pasta onde você roda o comando
+  results: ragbench_results
+  cache: ragbench_data/llm_cache.sqlite
+
+llm:
+  backend: ollama                     # ollama | openai (vLLM, llama.cpp server, APIs) | mock (testes)
+  base_url: http://localhost:11434
+  api_key: ""
+  num_ctx: 8192                       # o MESMO em todas as chamadas (mudar faz o Ollama recarregar o modelo)
+  keep_alive: 30m
+  timeout_s: 900
+  retries: 3
+  autostart: true                     # Ollama desta máquina fechado na primeira chamada: abre sozinho (`ollama serve`)
+  think: null                        # use false com modelos "thinking" (ex.: Qwen3)
+  workers: 1                          # perguntas em paralelo; 2 só com OLLAMA_NUM_PARALLEL=2
+
+models:
+  generator: qwen2.5:7b                               # G / π_α (artigos: Qwen2.5-7B-Instruct)
+  critic: hf.co/mradermacher/RAG-Critic-3B-GGUF:Q4_K_M   # π_θ: pesos OFICIAIS do RAG-Critic-3B (GGUF)
+  planner: qwen2.5:3b                                    # π_β (artigo: Llama3.1-70B / Qwen2.5-72B)
+  judge: qwen2.5:3b                                      # supervisor da etapa 1 (artigo: Qwen2.5-72B)
+  summarizer: qwen2.5:3b                                 # nomeia os clusters (artigo: GPT-4o)
+
+data:
+  scale: small                        # small (perfis mini/quick) | large (standard) | smoke
+  scales:
+    smoke: {eval_pool: 12, train_pool: 16, extra_pool: 8}
+    small: {eval_pool: 100, train_pool: 150, extra_pool: 150}
+    large: {eval_pool: 300, train_pool: 500, extra_pool: 300}
+  # arquivos locais no formato oficial (opcional), ex.:
+  #   2wiki:   {eval: C:/dados/2wiki/dev.json, train: C:/dados/2wiki/train.json}
+  #   musique: {eval: C:/dados/musique_ans_v1.0_dev.jsonl, train: C:/dados/musique_ans_v1.0_train.jsonl}
+  #   nq:      {eval: C:/dados/ragcritic/nq/test.json, format: ragcritic}
+  local: {}
+
+retrieval:
+  embed_backend: auto                 # indexação: auto (GPU se der: torch CUDA → Ollama → CPU) | st | ollama
+  batch_size: 32
+  max_seq_length: 256
+  dynakrag: {kind: dense, model: BAAI/bge-large-en-v1.5}     # artigo: BGE-large-en-v1.5 + FAISS flat
+  ragcritic: {kind: dense, model: intfloat/e5-base-v2}       # artigo: E5-base-v2 (FlashRAG)
+
+# ============================================================================= comparação entre métodos
+# Cada artigo roda nos datasets dele (ragcritic.datasets e dynakrag.datasets). As falhas dos dois métodos só são
+# cruzadas nos datasets comuns aos dois, porque só neles os métodos respondem às mesmas perguntas.
+compare:
+  # Critério de falha por pergunta. Padrão: EM = 0, a definição do artigo do Doctor-RAG (Jiao et al., 2026:
+  # "initially incorrect instances (EM=0)"). Nem o RAG-Critic nem o DynaKRAG definem falha pergunta a pergunta.
+  # Alternativas, que NÃO vêm de artigo nenhum: f1 (com o corte abaixo) e acc (o gabarito não aparece na resposta).
+  fail_metric: em                     # em | f1 | acc
+  fail_threshold: 0.5                 # só vale com fail_metric: f1 (falhou se o F1 ficar ABAIXO deste valor)
+  # Métodos que já vêm marcados no painel e que o FALHAS.md cruza: o método de cada artigo e a base simples.
+  default_methods: [ragcritic/standard_rag, ragcritic/ragcritic, dynakrag/dynakrag]
+
+# ============================================================================= DynaKRAG
+dynakrag:
+  datasets: [hotpotqa, 2wiki, musique]
+  n_eval: 100
+  n_train: 150                        # artigo: 1.000 por dataset
+  max_steps: 4                        # passos de aquisição/controle (Tabela 4)
+  docs_per_action: 3
+  max_final_docs: 12
+  initial_depth: 50                   # tamanho do ranking inicial (fronteira)
+  lambda_cost: 0.0                    # λ = 0 nas rodadas principais
+  probe: one_step                     # sonda numa chamada só (julga e descreve a lacuna): Tabela 6 do artigo, 3,000 chamadas
+                                      # ao LLM com limite de 1 retrieval. two_step = julga e depois descreve (versões antigas)
+  answer_max_tokens: 48
+  passage_words: 180
+  compression:
+    default: {style: extract, max_snippets: 8, max_tokens: 256}
+    musique: {style: fact_table, max_snippets: 12, max_tokens: 384}
+  controller:
+    rf_trees: 300
+    rf_min_leaf: 8
+    stop_rule: sufficient             # quando stop_answer é válido: sufficient = só depois que a sonda disse "suficiente"
+                                      # (Tabelas 6–8 do artigo) | probe = depois de qualquer veredito | always = sempre (versões antigas)
+    max_probes: 1                     # sondas por trajetória (Tabela 7: 0,98–1,00 por pergunta) | null = sem limite (versões antigas)
+    continuation: true
+    continuation_threshold: auto      # auto: τ calibrado nos prefixos de treino em que parar é permitido (CV) | ou um número, ex. 0.35
+    continuation_label: final_better  # final_better | any_better
+  methods: [fixed_k, ircot, self_ask, crag, adaptive_rag, s2g_rag, corag, par2_rag, dynakrag]
+  ablations: [no_compression, no_sufficiency, uniform]
+  cap_sweep: [1, 2, 3]
+  baselines:
+    fixed_k_grid: [3, 6, 12]
+    ircot: {k: 3, max_steps: 4}
+    self_ask: {k: 3, max_followups: 4}
+    crag: {k: 5, max_strips: 8}
+    adaptive_rag: {n_train: 60, k: 6}
+    s2g_rag: {k: 5, gap_k: 3, max_rounds: 3}
+    corag: {k: 3}
+    par2_rag: {k: 3, max_subq: 3, max_refine: 2}
+
+# ============================================================================= RAG-Critic
+ragcritic:
+  datasets: [nq, triviaqa, hotpotqa, 2wiki]
+  n_eval: 100                         # o artigo também avalia 100 perguntas por dataset
+  top_k: 5
+  generator_max_tokens: 256
+  critic_template: indent20           # recuo do prompt do crítico: indent20 | indent16 (ver docs/RAG-Critic.md)
+  critic_max_tokens: 768
+  planner_max_tokens: 768
+  max_program_calls: 12
+  max_topk: 10
+  on_exec_fail: keep_previous         # keep_previous | empty (comportamento do código oficial)
+  iterations: 2                       # Tabela 6
+  methods: [standard_rag, self_refine, flare, metarag, ragcritic]
+  ablations: [zeroshot_critic, rule_planning]   # Tabela 4: "w/o Critic Model" e "w/o Auto-Planning"
+  baselines:
+    self_refine: {max_iter: 2}
+    flare: {theta: 0.4, beta: 0.4}
+    metarag: {agree: 0.5}
+  errorbench:
+    n_correct: 190                    # null = todos os 950
+    n_error: 190
+    format_audit: true
+    zeroshot_models: [qwen2.5:3b]
+  errorsystem:
+    datasets: [hotpotqa, 2wiki, nq, triviaqa]
+    n_per_dataset: 40
+    pool: [qwen2.5:0.5b, qwen2.5:1.5b, qwen2.5:3b, llama3.2:1b, llama3.2:3b, gemma2:2b]
+    temperature: 0.1
+    alpha: 3                          # artigo: frequência mínima 10 (em ~100k respostas)
+    max_label_tokens: 25
+    n_clusters: 20
+    embed_model: BAAI/bge-m3
+    labels_per_cluster: 50

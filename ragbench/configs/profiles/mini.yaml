@@ -1,0 +1,14 @@
+# Checagem rápida: 30 perguntas por dataset.
+# As perguntas são as 30 PRIMEIRAS do perfil quick (mesmo corpus): tudo o que rodar aqui vira cache.
+data:
+  scale: small
+dynakrag:
+  n_eval: 30
+  n_train: 60
+  baselines:
+    adaptive_rag: {n_train: 20, k: 6}
+ragcritic:
+  n_eval: 30
+  errorbench:
+    n_correct: 60
+    n_error: 60

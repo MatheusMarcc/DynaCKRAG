@@ -1,0 +1,4 @@
+# Rodada rápida (padrão): 100 perguntas de avaliação por dataset, 150 de treino por controlador,
+# 380 amostras estratificadas do RAG-Error Bench. Usa os valores de base.yaml.
+data:
+  scale: small

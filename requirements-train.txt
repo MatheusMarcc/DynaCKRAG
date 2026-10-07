@@ -1,0 +1,9 @@
+# Treino do crítico do RAG-Critic (SFT + DPO) — opcional, precisa de GPU NVIDIA.
+# Instale primeiro o torch com CUDA, por exemplo:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+transformers>=4.46
+trl>=1.0
+peft>=0.13
+accelerate>=1.0
+datasets>=2.19
+bitsandbytes>=0.43 ; platform_system != "Darwin"   # QLoRA (4 bits)

@@ -1,0 +1,21 @@
+# Rodada padrão (longa): a configuração mais próxima dos artigos entre os perfis.
+# 300 perguntas por dataset; controlador do DynaKRAG treinado com 1.000 exemplos por dataset (o valor do artigo);
+# RAG-Error Bench completo (1.900).
+data:
+  scale: large
+  scales:
+    large: {eval_pool: 300, train_pool: 1000, extra_pool: 300}
+dynakrag:
+  n_eval: 300
+  n_train: 1000
+  baselines:
+    adaptive_rag: {n_train: 150, k: 6}
+ragcritic:
+  n_eval: 300
+  errorbench:
+    n_correct: null
+    n_error: null
+    zeroshot_models: [qwen2.5:3b, llama3.2:3b]
+  errorsystem:
+    n_per_dataset: 150
+    alpha: 5

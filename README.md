@@ -1,168 +1,164 @@
-# dynacritic — DynaKRAG + RAG-Critic num notebook com RTX 3050 (4 GB)
+# ragbench
 
-Framework que junta os dois artigos num único pipeline:
+Reprodução de dois métodos de *Retrieval-Augmented Generation* com modelos locais, cada um isolado, com os
+baselines, as ablações e as tabelas do respectivo artigo:
 
-```
-pergunta ─► [Laço A · DynaKRAG]  camada de validade → política (uniforme | random forest) → ação → novo estado … parar
-         ─► compressão terminal ─► gerador ─► resposta
-         ─► [RAG-Critic-3B]  Correct → fim
-                             Error   → tags + análise ─► [Laço B · reparo: menu | code | state] ─► resposta corrigida
-```
+- **RAG-Critic**: Dong et al., *RAG-Critic: Leveraging Automated Critic-Guided Agentic Workflow for Retrieval
+  Augmented Generation*, ACL 2025.
+- **DynaKRAG**: Wu et al., *DynaKRAG: A Unified Framework for Learnable Evidence Control in Multi-Hop
+  Retrieval-Augmented Generation*, arXiv:2607.06507, 2026.
 
-Tudo roda com **Ollama** na sua máquina. Uma API externa só é necessária se você quiser
-trocar para modelos maiores depois: basta mudar `llm.backend` para `openai`.
+Os dois métodos compartilham apenas a infraestrutura: cliente de LLM com cache, busca, datasets, métricas,
+relatórios e um painel web local. Os modelos são servidos pelo [Ollama](https://ollama.com).
 
----
+## Visão geral
 
-## 1. O que roda no seu hardware
-
-| Peça | Como roda aqui | Observação |
+| | RAG-Critic | DynaKRAG |
 |---|---|---|
-| Gerador | `qwen2.5:3b` no Ollama (~2 GB, cabe inteiro na GPU) | o artigo usa 7B; o `qwen2.5:7b` roda com parte na CPU (bem mais lento) |
-| Crítico | `hf.co/mradermacher/RAG-Critic-3B-GGUF:Q4_K_M` | é o crítico **oficial**, só convertido para GGUF — não precisa treinar nada |
-| Planner (reparo) | `qwen2.5:3b` com saída JSON (modo `menu`) | modelos de 3B erram muito escrevendo código livre |
-| Controlador | `RandomForestRegressor` (sklearn), CPU | não é LLM; treina em segundos |
-| Retrieval | BM25 na CPU (padrão) ou denso (`bge-small`/`bge-large`) na CPU | a GPU fica só para o LLM |
-| Corpus | união dos parágrafos das perguntas amostradas do HotpotQA | indexar a Wikipedia inteira não cabe num notebook |
+| Ideia | um crítico ajustado aponta o erro da resposta; um planner escreve um programa que a corrige | um controlador aprendido escolhe, a cada passo, a próxima operação de evidência |
+| Implementado | Standard RAG → crítico RAG-Critic-3B (pesos oficiais) → planner → executor das 5 funções | 7 operações atômicas, camada de validade, modelo de valor (Eq. 1), modelo de continuação, compressão terminal |
+| Baselines | Standard RAG, Self-Refine, FLARE, MetaRAG | Fixed-K, IRCoT, Self-Ask+Search, CRAG, Adaptive-RAG, S2G-RAG, CoRAG, PAR²-RAG |
+| Ablações | sem crítico ajustado, sem auto-planejamento, 2 iterações | sem compressão, sem checagem de suficiência, sem controlador aprendido, limite de 1, 2 ou 3 buscas |
+| Tabelas e figuras | Tabelas 3, 4, 5/7 e 6; Figura 6 | Tabelas 1, 2, 6, 7 e 8; Figuras 3, 4 e 5 |
+| Datasets | NQ, TriviaQA, HotpotQA, 2Wiki e o RAG-Error Bench oficial | HotpotQA, 2Wiki e MuSiQue |
+| Métricas | EM, F1 e Overall F1; identificação e Tag1/Tag2 F1 no RAG-Error Bench | EM, F1 e tokens por pergunta |
 
-**O que muda em relação aos artigos:** corpus reduzido, gerador 3B e amostras menores
-(300 + 300 por padrão). Com isso os números absolutos **não** batem com o artigo.
-As comparações relativas continuam válidas: uniforme × RF, com/sem compressão, com/sem crítico
-e os três modos de reparo, porque todas rodam no mesmo corpus, com o mesmo modelo e o mesmo código.
+Cada artigo é avaliado nos próprios datasets e com as próprias métricas. A descrição de como cada parte dos
+artigos foi implementada, incluindo as decisões tomadas onde o texto é omisso, está em
+[`docs/RAG-Critic.md`](docs/RAG-Critic.md) e [`docs/DynaKRAG.md`](docs/DynaKRAG.md).
 
----
+## Requisitos
 
-## 2. Instalação (Windows)
+- Python 3.10 ou superior.
+- Ollama em execução na mesma máquina (ou outro servidor compatível com a API da OpenAI; ver `llm.backend`).
+- GPU NVIDIA com 4 GB de VRAM para o gerador padrão (`qwen2.5:3b`). O gerador dos artigos, `qwen2.5:7b`,
+  requer cerca de 8 GB.
+- Windows (PowerShell) ou Linux. Acesso à internet na primeira execução, para baixar datasets e modelos.
 
-1. Instale o **Ollama** para Windows (ollama.com) e deixe o app aberto.
-2. Baixe os modelos (PowerShell):
-   ```powershell
-   ollama pull qwen2.5:3b
-   ollama pull hf.co/mradermacher/RAG-Critic-3B-GGUF:Q4_K_M
-   ```
-3. Python 3.10+ num ambiente virtual, dentro desta pasta:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   ```
-   (No Linux/WSL: `source .venv/bin/activate`.)
+## Instalação
 
----
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt          # Windows: .venv\Scripts\pip
+ollama pull qwen2.5:3b
+ollama pull hf.co/mradermacher/RAG-Critic-3B-GGUF:Q4_K_M
+ollama pull bge-large                              # opcional: monta os índices na GPU
+```
 
-## 3. Passo a passo
+Os scripts `run_all.ps1` (Windows) e `run_all.sh` (Linux) fazem essas etapas e executam a rodada completa.
 
-Rode os comandos **nesta ordem**, a partir da raiz do projeto. Cada etapa grava em `data/`
-e tem um critério para você saber se deu certo.
+## Uso
 
-| # | Comando | O que conferir |
+```bash
+python -m ragbench smoke                         # verificação de ponta a ponta com LLM simulado (sem GPU)
+python -m ragbench doctor  --profile mini        # ambiente, modelos, uso da GPU e estimativa de tempo
+python -m ragbench prepare --profile mini        # datasets, corpora, índices e RAG-Error Bench
+python -m ragbench bench   --profile mini        # executa os métodos, em ordem de prioridade
+python -m ragbench report  --profile mini        # gera os relatórios com o que já terminou
+python -m ragbench ui                            # painel em http://127.0.0.1:8765
+```
+
+O comando `smoke` deve terminar com `smoke OK — 37 jobs`. Uma execução interrompida é retomada ao repetir o
+mesmo comando: as chamadas ao LLM ficam em cache e cada pergunta é gravada ao terminar.
+
+Para usar outro modelo, por exemplo o gerador dos artigos:
+
+```bash
+python -m ragbench bench --profile standard --set models.generator=qwen2.5:7b --set models.planner=qwen2.5:7b
+```
+
+O guia de uso completo (comandos, opções, painel, execução remota e solução de problemas) está em
+[`docs/USO.md`](docs/USO.md).
+
+### Perfis
+
+| Perfil | Perguntas por dataset | Treino do controlador (DynaKRAG) | RAG-Error Bench |
+|---|---:|---:|---:|
+| `smoke` | 12 (sintéticas) | 16 | 12 (sintético) |
+| `mini` | 30 | 60 | 120 |
+| `quick` | 100 | 150 | 380 (estratificado) |
+| `standard` | 300 | 1.000 | 1.900 (completo) |
+
+O perfil `standard` usa o tamanho de treino do controlador descrito no artigo do DynaKRAG. O comando `doctor`
+estima a duração de cada perfil com a velocidade medida na máquina.
+
+### Ordem de execução
+
+| Tier | Conteúdo |
+|---|---|
+| 1 | RAG-Error Bench, Standard RAG e RAG-Critic; treino do controlador, Fixed-K e DynaKRAG |
+| 2 | ablações dos dois artigos e o crítico zero-shot no benchmark |
+| 3 | baselines da literatura e a varredura do limite de buscas |
+
+### Saídas
+
+Em `ragbench_results/<perfil>/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `TABELAS.md`, `tabelas.tex`, `figs/tabela_*.png` | uma tabela por artigo, no formato e com as métricas do artigo |
+| `ragcritic/REPORT.md`, `dynakrag/REPORT.md` | tabelas e figuras de cada artigo, com os valores publicados ao lado |
+| `COMPARACAO.md`, `comparacao.csv` | cada afirmação dos artigos, com a diferença medida ao lado da publicada |
+| `metrics.csv` | métricas por método e dataset |
+| `FALHAS.md`, `falhas_*.csv` | análise de falhas por pergunta |
+| `REPORT.md` | índice e estado de cada etapa |
+
+## Fidelidade aos artigos
+
+**Igual aos artigos.** Prompts e funções do executor do RAG-Critic (repositório oficial), pesos oficiais do
+crítico, métricas do RAG-Error Bench portadas do script oficial; no DynaKRAG, as sete operações, o alvo de
+treino da Eq. 1, a regra de escolha da Eq. 2, os hiperparâmetros do controlador, o retriever e os parâmetros
+de compressão.
+
+**Adaptado por configuração.** Estes itens diferem dos artigos nos perfis padrão e podem ser alterados:
+
+| Item | Artigos | Padrão do pacote |
 |---|---|---|
-| 0 | `python -m dynacritic smoke` | termina com `smoke OK` (sem GPU, sem Ollama: dados sintéticos + LLM falso) |
-| 1 | `python -m dynacritic doctor` | os 3 modelos com `[ok]`, tok/s e **% na GPU** (o 3B deve ficar ~100%) |
-| 2 | `python -m dynacritic prepare` | `train=300 dev=300 corpus≈6000 parágrafos` |
-| 3 | `python -m dynacritic index` | índice BM25 salvo |
-| 4 | `python -m dynacritic baseline --k 5 --limit 30` | EM/F1 plausíveis; depois rode sem `--limit` |
-| 5 | `python -m dynacritic run --policy uniform` | a ablação "sem controlador aprendido" |
-| 6 | `python -m dynacritic label` | nº de pares (estado, ação) rotulados |
-| 7 | `python -m dynacritic train` | MAE por ação e as features mais importantes |
-| 8 | `python -m dynacritic run --policy rf` e `run --policy rf --no-compress` | RF > uniforme; compressão ajuda |
-| 9 | `python -m dynacritic critic-bench --file <RAG-Critic>/rag_error_bench/test_data/critic_model_test.json --n 200` | identificação alta nos dois lados (o artigo reporta ~96%) |
-| 10 | `python -m dynacritic critic --run dyna_rf` | quantas respostas o crítico marcou e a concordância com o EM |
-| 11 | `python -m dynacritic repair --run dyna_rf --mode menu` (e `code`, `state`) | F1 depois do reparo × F1 antes |
-| 12 | `python -m dynacritic eval` | tabela com EM, F1, SR, tokens, chamadas e passos + composição das ações |
+| Gerador | Qwen2.5-7B e outros | `qwen2.5:3b` (`models.generator`) |
+| Planner do RAG-Critic | Llama3.1-70B ou Qwen2.5-72B | `qwen2.5:3b` (`models.planner`) |
+| Perguntas de avaliação | 100 por dataset (RAG-Critic); splits completos (DynaKRAG) | 30, 100 ou 300, conforme o perfil |
+| Treino do controlador | 1.000 perguntas | 60, 150 ou 1.000, conforme o perfil |
 
-Dicas:
-- Use `--limit 20` em qualquer comando para um teste rápido antes da rodada completa.
-- Qualquer chave do `config.yaml` pode ser sobrescrita: `--set models.generator=qwen2.5:7b`.
-- Todas as chamadas ao LLM ficam em cache (`data/llm_cache.sqlite`). Repetir um experimento
-  com a mesma configuração não gasta nada.
-- Para o passo 9, clone o repositório oficial: `git clone https://github.com/RUC-NLPIR/RAG-Critic`.
+**Diferente dos artigos no código atual.**
 
-### Quanto tempo leva
-O `doctor` mostra os tok/s da sua máquina. Como referência, o laço A faz cerca de 3–4 chamadas ao
-LLM por pergunta, a rotulagem cerca de 2–4, o crítico 1 e o reparo 2–4 (só nas respostas marcadas
-como erro). Com um 3B inteiro na GPU, conte algo na faixa de 10–30 s por pergunta no laço A.
-Com 300 perguntas, isso dá de 1 a 3 horas por rodada, e o cache torna as repetições instantâneas.
-**Meça antes de rodar tudo:** faça `--limit 20` e multiplique.
+- *Corpus.* Os artigos buscam na Wikipedia completa. O pacote monta, para cada dataset, um corpus com os
+  parágrafos que acompanham as perguntas amostradas. A busca fica mais fácil do que nos artigos, o que afeta
+  principalmente os baselines de busca estática.
+- *DynaKRAG.* O artigo não publica código nem prompts. A regra de parada, o prompt da checagem de suficiência,
+  o detector de entidade-ponte e o K do Fixed-K foram reconstruídos a partir do texto e das tabelas; cada
+  decisão está registrada em `docs/DynaKRAG.md`.
+- *RAG-Critic.* Três datasets de resposta longa (ASQA, ELI5, WoW), o baseline Self-RAG e duas ablações que
+  exigem retreinar o crítico não estão implementados.
 
-### Por que as etapas são separadas
-Com 4 GB de VRAM, o gerador e o crítico não ficam os dois carregados na GPU. Por isso o pipeline
-roda **por estágio**: primeiro o laço A em todas as perguntas, depois o crítico em todas, depois o reparo.
-Assim o Ollama troca de modelo 3 vezes, em vez de 3 vezes por pergunta.
+**Não consta nos artigos.** O pacote inclui três recursos de apoio, identificados como tais nos relatórios: a
+análise de falhas por pergunta (`FALHAS.md`), a auditoria de formato do RAG-Error Bench e o painel.
 
----
-
-## 4. Como cada artigo foi implementado
-
-### DynaKRAG (laço A) — `env.py`, `validity.py`, `features.py`, `controller.py`, `labeling.py`
-- **Estado** (`state.py`): pergunta, ranking inicial/fronteira, docs, query ativa, lacuna, resultado
-  de suficiência, histórico, orçamentos.
-- **6 ações + compressão**: `retrieve_more`, `gap_query`, `rewrite_query`, `bridge_entity_expand`,
-  `sufficiency_check`, `stop_answer` e `compress_answer_evidence` no final.
-- **Camada de validade** = Tabela 5 do artigo, aplicada antes de qualquer pontuação.
-- **Alvo** = Equação 1: ΔSR para aquisição, `1[SR=1]` para suficiência e `SR` para parar.
-  O gold só aparece aqui.
-- **RF**: 300 árvores, folha mínima 8, semente 13, λ = 0 (igual ao artigo).
-- Limites: 4 passos, 3 docs por ação, 12 docs no contexto final (igual ao artigo).
-
-### RAG-Critic (laço B) — `critic.py`, `repair.py`
-- Prompt do crítico **idêntico byte a byte** ao formato de treino: conferido em 300 exemplos do
-  benchmark oficial. O prompt vai na mensagem de sistema, com a de usuário vazia, como no repo.
-- Tabela erro→ação (Tabela 11) usada como dica para o planner.
-- **Modo `code`** (fiel ao artigo): o planner escreve Python com `Retrieval`, `RewriteQuery`,
-  `DecomposeQuery`, `RefineDoc` e `GenerateAnswer`. O repositório oficial roda o código com `exec()`
-  sem restrição. Aqui ele passa antes por uma **whitelist de AST**: sem imports, sem atributos,
-  sem laços e só as 5 funções.
-- **Modo `menu`**: o planner escolhe até 3 passos de um menu fixo via *structured outputs* (JSON schema).
-- **Modo `state`**: a crítica vira a lacuna do estado do DynaKRAG, e o **mesmo** controlador decide o
-  reparo, com passos extras. Nenhum dos dois artigos faz isso.
-
----
-
-## 5. Decisões onde os artigos são vagos (documente isso no seu relatório)
-
-1. **Política que gera os estados de treino**: uniforme sobre ações válidas, sem parar antes do limite.
-2. **Detector de entidade-ponte**: nomes próprios citados nos docs que ainda não têm documento próprio.
-3. **Portão de continuação**: regra `sufficient_only` (só para se a última checagem disser
-   "suficiente") no lugar do modelo de continuação aprendido. Sem esse portão, o argmax para cedo
-   demais, porque parar vale `SR(s)` e adquirir vale `ΔSR`.
-4. **SR por título**: fração dos títulos de suporte presentes no estado, com títulos normalizados.
-5. **Corpus reduzido** e BM25 como retriever padrão (o artigo usa BGE-large + FAISS no fullwiki).
-
----
-
-## 6. Próximos passos sugeridos
-
-- Trocar o portão por um **modelo de continuação aprendido**. Rótulo: se continuar até o limite
-  melhora o F1 em relação a parar agora.
-- `retriever.kind: dense` com `bge-large-en-v1.5` (requer `sentence-transformers` e `faiss-cpu`).
-- Adicionar 2Wiki e MuSiQue (MuSiQue: `compress_max_snippets: 12`, `compress_max_tokens: 384`).
-- Rodar a configuração final com um 7B, via Ollama com offload, numa GPU alugada ou numa API
-  (`llm.backend: openai`). O cache e o código continuam os mesmos.
-- Testar λ > 0 no controlador, com custo explícito por ação.
-
----
-
-## 7. Estrutura
+## Estrutura
 
 ```
-dynacritic/
-  cli.py         comandos
-  config.py      config.yaml + --set
-  data.py        HotpotQA → registros + corpus reduzido
-  retrieval.py   BM25 / denso
-  llm.py         Ollama / OpenAI-compatível / mock, com cache e contagem de tokens
-  prompts.py     todos os prompts
-  state.py       estado de evidências
-  env.py         ações atômicas do DynaKRAG + detector de ponte
-  validity.py    camada de validade A(s)
-  features.py    features observáveis do par (estado, ação)
-  controller.py  política uniforme, RF e portão de continuação
-  loop.py        laço A, compressão, resposta e baseline de K fixo
-  labeling.py    rotulagem ΔSR + treino da RF
-  critic.py      RAG-Critic-3B + validação no RAG-Error Bench
-  repair.py      laço B: menu / code (sandbox) / state
-  evaluate.py    tabela comparativa
-  mock.py, toy.py  LLM falso + dados sintéticos para o smoke test
-tests/test_core.py  python -m pytest -q
+ragbench/
+  core/        cliente de LLM com cache, execução retomável, datasets, busca, modelo simulado
+  ragcritic/   RAG-Critic: fluxo, crítico, planner, executor, baselines, RAG-Error Bench, treino do crítico
+  dynakrag/    DynaKRAG: estado, operações, validade, controlador, treino, baselines
+  configs/     configuração base e perfis
+  ui/          painel web local
+  analysis.py  análise de falhas        compare.py  comparação com os artigos
+  tables.py    tabelas de apresentação  report.py   índice dos relatórios
+docs/          notas de implementação por artigo e guia de uso
+tests/         testes automatizados
 ```
+
+## Testes
+
+```bash
+python -m pytest -q tests        # 100 testes
+python -m ragbench smoke         # 37 etapas com LLM simulado
+```
+
+Dois testes são ignorados quando faltam os arquivos oficiais do RAG-Error Bench (variável
+`RAGBENCH_ERRORBENCH_DIR`) ou o Node.js.
+
+## Créditos e licenças de terceiros
+
+O pacote reproduz prompts e métricas do repositório oficial do RAG-Critic e usa modelos e datasets de
+terceiros, baixados em tempo de execução. Ver [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,31 @@
+# Teste de fumaça: LLM falso, dados sintéticos, embedding falso. Roda em ~1 min, sem GPU e sem internet.
+data:
+  scale: smoke
+paths:
+  cache: ragbench_data/smoke/llm_cache.sqlite
+llm:
+  backend: mock
+retrieval:
+  dynakrag: {kind: dense, model: hash}
+  ragcritic: {kind: bm25}
+dynakrag:
+  datasets: [toy_multihop]
+  n_eval: 12
+  n_train: 16
+  baselines:
+    adaptive_rag: {n_train: 8, k: 6}
+ragcritic:
+  datasets: [toy_single, toy_multihop]
+  n_eval: 12
+  errorbench:
+    n_correct: 6
+    n_error: 6
+    zeroshot_models: [generator]
+  errorsystem:
+    datasets: [toy_single, toy_multihop]
+    n_per_dataset: 8
+    pool: [generator, planner]
+    alpha: 1
+    n_clusters: 3
+    embed_model: hash
+    labels_per_cluster: 10

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>ragbench · painel</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand">ragbench <span>· painel</span></div>
+      <label class="field">Perfil <select id="selProfile" aria-label="Perfil"></select></label>
+      <label class="field">Dataset <select id="selDataset" aria-label="Dataset"></select></label>
+      <span class="grow"></span>
+      <span id="topNote" class="small muted"></span>
+      <button id="btnReload" class="btn ghost sm" type="button" title="Reler os resultados do disco">Atualizar</button>
+      <button id="btnTheme" class="btn ghost sm" type="button" title="Alternar tema claro/escuro">Tema</button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Seções do painel"></nav>
+  </div>
+</header>
+<div class="wrap">
+  <div id="filters" class="filters" hidden></div>
+  <main id="app" aria-live="polite"></main>
+  <p class="small muted" style="padding:6px 0 30px" id="foot"></p>
+</div>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<div id="drawerHost"></div>
+<noscript><p style="padding:20px">O painel precisa de JavaScript.</p></noscript>
+<script>/*__BOOT__*/</script>
+<script>/*__JS__*/</script>
+</body>
+</html>

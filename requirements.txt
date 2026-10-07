@@ -1,3 +1,4 @@
+# ragbench — dependências de execução (Python 3.10+)
 numpy>=1.24
 scipy>=1.10
 scikit-learn>=1.3
@@ -5,8 +6,10 @@ pyyaml>=6.0
 httpx>=0.27
 json_repair>=0.30
 tqdm>=4.66
-datasets>=2.19          # baixa o HotpotQA do Hugging Face (comando prepare)
-
-# --- opcional: retriever denso (retriever.kind: dense) ---
-# sentence-transformers>=3.0
-# faiss-cpu>=1.8
+matplotlib>=3.7
+datasets>=2.19          # baixa HotpotQA / 2Wiki / MuSiQue / NQ / TriviaQA do Hugging Face (streaming)
+huggingface_hub>=0.23
+pyarrow>=14
+sentence-transformers>=3.0   # embeddings BGE-large (DynaKRAG) e E5-base (RAG-Critic) na CPU; puxa o torch CPU
+tokenizers>=0.19             # contagem de tokens com o tokenizer do Qwen2.5
+pytest>=7
