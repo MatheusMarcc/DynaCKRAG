@@ -1,6 +1,7 @@
 """Texto: normalização, EM/F1 (padrão SQuAD/HotpotQA), extração de resposta e formatação de passagens."""
 from __future__ import annotations
 
+import math
 import re
 import string
 import unicodedata
@@ -60,6 +61,70 @@ def contains_answer(pred: str, golds: list[str]) -> float:
     """Métrica 'acc' do FlashRAG: alguma resposta de referência aparece dentro da predição."""
     p = normalize_answer(pred)
     return float(any(normalize_answer(g) and normalize_answer(g) in p for g in golds or []))
+
+
+def _ngrams(toks: list[str], n: int) -> Counter:
+    return Counter(tuple(toks[i:i + n]) for i in range(len(toks) - n + 1))
+
+
+def bleu_score(pred: str, gold: str, max_n: int = 4) -> float:
+    """BLEU de uma resposta (Papineni et al., 2002), sobre os tokens normalizados como no EM.
+
+    Segue o ``sentence_bleu`` do sacreBLEU com ``smooth_method="add-k"`` (k = 1, Lin e Och, 2004) e
+    ``use_effective_order=True``: +1 nas contagens das ordens n ≥ 2, parada na primeira ordem sem n-gramas e
+    média geométrica das precisões até essa ordem. Sem nenhum unigrama em comum, o BLEU é 0. Penalidade de
+    brevidade: exp(1 − r/c) quando a predição é mais curta que o gabarito. Conferido contra o sacreBLEU 2.x
+    (``tests/test_diagnostico.py``).
+    """
+    p, g = normalize_answer(pred).split(), normalize_answer(gold).split()
+    if not p or not g:
+        return 0.0
+    correct = [sum((_ngrams(p, n) & _ngrams(g, n)).values()) for n in range(1, max_n + 1)]
+    total = [max(len(p) - n + 1, 0) for n in range(1, max_n + 1)]
+    if correct[0] == 0:
+        return 0.0
+    logs = []
+    for n in range(1, max_n + 1):
+        c, t = correct[n - 1], total[n - 1]
+        if n > 1:
+            c, t = c + 1, t + 1
+        if t == 0:
+            break
+        logs.append(math.log(c / t))
+    bp = 1.0 if len(p) >= len(g) else math.exp(1 - len(g) / len(p))
+    return bp * math.exp(sum(logs) / len(logs))
+
+
+def bleu1_score(pred: str, gold: str) -> float:
+    """BLEU-1: precisão de unigramas com a penalidade de brevidade."""
+    return bleu_score(pred, gold, max_n=1)
+
+
+def rougel_score(pred: str, gold: str) -> float:
+    """ROUGE-L F1 (Lin, 2004): maior subsequência comum entre predição e gabarito, em tokens normalizados."""
+    p, g = normalize_answer(pred).split(), normalize_answer(gold).split()
+    if not p or not g:
+        return 0.0
+    prev = [0] * (len(g) + 1)
+    for a in p:
+        cur = [0]
+        for j, b in enumerate(g):
+            cur.append(prev[j] + 1 if a == b else max(prev[j + 1], cur[j]))
+        prev = cur
+    lcs = prev[-1]
+    if lcs == 0:
+        return 0.0
+    prec, rec = lcs / len(p), lcs / len(g)
+    return 2 * prec * rec / (prec + rec)
+
+
+def all_scores(pred: str, golds: list[str]) -> dict:
+    """EM, F1, Acc, BLEU, BLEU-1 e ROUGE-L, cada um com o máximo sobre as respostas de referência."""
+    golds = [g for g in (golds or []) if g]
+    em, f1 = best_em_f1(pred, golds)
+    best = lambda fn: max((fn(pred, g) for g in golds), default=0.0)  # noqa: E731
+    return {"em": em, "f1": round(f1, 4), "acc": contains_answer(pred, golds), "bleu": round(best(bleu_score), 4),
+            "bleu1": round(best(bleu1_score), 4), "rougel": round(best(rougel_score), 4)}
 
 
 # ----------------------------------------------------------------------------- títulos e tokens

@@ -295,6 +295,26 @@ def cmd_analyze(cfg, a):
         print(f"{k}: {v}")
 
 
+def cmd_diagnostico(cfg, a):
+    from .diagnostico import format_case, run
+
+    methods = a.metodo or ["ragcritic", "dynakrag"]
+    datasets = [a.dataset] if a.dataset else a.datasets
+    out = run(cfg, _llm(cfg), methods, datasets, a.alvos, a.id, a.criterio, a.corte, a.limite)
+    if a.id:
+        if not out["results"]:
+            print("nenhuma pergunta com esse id nos resultados da rodada (confira --metodo, --dataset e --profile)")
+        for r in out["results"]:
+            print(format_case(r) + "\n")
+    else:
+        n = sum(not r["skipped"] for r in out["results"])
+        print(f"{n} pergunta(s) testada(s)")
+        for k, v in out["paths"].items():
+            print(f"{k}: {v}")
+    for note in out["notes"]:
+        print(f"aviso: {note}")
+
+
 def cmd_ui(a):
     """Não passa por ``_setup``: o painel carrega o config de cada perfil conforme você troca no topo da página."""
     from .ui.data import latest_profile
@@ -395,6 +415,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("analyze", help="análise de falhas por pergunta (FALHAS.md + CSV)")
     _common(p)
     p.set_defaults(fn=cmd_analyze)
+
+    p = sub.add_parser("diagnostico", help="refaz as falhas de busca e raciocínio com os parágrafos de suporte no contexto")
+    _common(p)
+    p.add_argument("--metodo", nargs="+", choices=["ragcritic", "dynakrag"], help="padrão: os dois")
+    p.add_argument("--dataset", help="um dataset (com --id, para ver uma pergunta)")
+    p.add_argument("--datasets", nargs="*", help="restringe os datasets de cada método")
+    p.add_argument("--id", nargs="+", help="uma ou mais perguntas, mostradas em detalhe (qualquer etapa)")
+    p.add_argument("--alvos", nargs="+", default=["busca", "raciocinio"], choices=["busca", "raciocinio"])
+    p.add_argument("--criterio", default="acc", choices=["acc", "em", "f1", "bleu", "bleu1", "rougel"],
+                   help="critério de acerto (padrão: acc, o gabarito aparece na resposta)")
+    p.add_argument("--corte", type=float, default=0.5, help="corte para f1, bleu, bleu1 e rougel")
+    p.add_argument("--limite", type=int, help="testa só as N primeiras perguntas")
+    p.set_defaults(fn=cmd_diagnostico)
 
     p = sub.add_parser("ui", help="abre o painel no navegador (rodar testes, ver falhas, explorar os dados)")
     p.add_argument("--profile", default=None, choices=PROFILES, help="perfil aberto de início (padrão: o que tem "

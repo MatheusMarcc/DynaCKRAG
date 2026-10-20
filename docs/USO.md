@@ -144,6 +144,50 @@ RAG-Critic; o melhor Fixed-K para o DynaKRAG). Quebra: a base acerta e o método
 **Falhas em comum.** Só são cruzados os datasets usados pelos dois artigos (HotpotQA e 2Wiki), pois apenas
 neles os métodos respondem às mesmas perguntas.
 
+### Diagnóstico das falhas de busca e de raciocínio
+
+Este teste não consta nos artigos. Cada pergunta em que o RAG-Critic ou o DynaKRAG falhou por **busca** ou
+por **raciocínio** é respondida de novo pela etapa de geração do próprio método, com os documentos já prontos:
+
+| Condição | Documentos entregues ao método |
+|---|---|
+| `suporte` | só os parágrafos de suporte do gabarito |
+| `suporte+busca` | os documentos que o método recuperou na rodada, com os parágrafos de suporte que faltavam no lugar dos últimos documentos que não são de suporte (o total não muda; posição sorteada com semente fixa por pergunta) |
+
+No RAG-Critic, a geração é a do gerador π_α com o Prompt A (a resposta final do método quando o crítico não
+acusa erro). No DynaKRAG, é a etapa final do método: compressão da evidência e resposta.
+
+```bash
+python -m ragbench diagnostico --profile mini                       # todas as falhas de busca e raciocínio
+python -m ragbench diagnostico --profile mini --metodo dynakrag --alvos raciocinio
+python -m ragbench diagnostico --profile mini --metodo dynakrag --dataset musique --id <id>   # uma pergunta, em detalhe
+python -m ragbench diagnostico --profile mini --criterio f1 --corte 0.5
+```
+
+Com `--id`, o terminal mostra os documentos de cada condição (★ marca os de suporte), a evidência comprimida do
+DynaKRAG, a saída do modelo, a resposta e as métricas. O id de cada pergunta está em `falhas_por_teste.csv`.
+
+**Critério de acerto.** Padrão: Acc = 1 (o gabarito aparece dentro da resposta, após normalizar), sem usar o EM.
+Alternativas: `em`, ou `f1`, `bleu`, `bleu1`, `rougel` com o corte de `--corte`.
+
+**Métricas** (sobre o texto normalizado, com o máximo entre as respostas de referência): EM e F1 do avaliador do
+SQuAD/HotpotQA; Acc, como no FlashRAG; BLEU (Papineni et al., 2002), calculado como o `sentence_bleu` do sacreBLEU
+(add-k com k = 1, ordem efetiva), e BLEU-1; ROUGE-L F1 (Lin, 2004). Em respostas de 1 a 3 palavras, o BLEU de
+ordem 4 não existe e a penalidade de brevidade domina o valor, o que limita o BLEU como critério de acerto.
+
+**Rótulo de cada pergunta:**
+
+| `suporte` | `suporte+busca` | Rótulo |
+|---|---|---|
+| acerta | acerta | resolve com os documentos certos |
+| acerta | erra | os demais documentos atrapalham |
+| erra | acerta | inconsistente |
+| erra | erra | erra mesmo com os documentos certos |
+
+Saídas em `ragbench_results/<perfil>/diagnostico/`: `DIAGNOSTICO.md` (contagem dos rótulos, médias das
+métricas por condição e a lista de perguntas), `diagnostico.csv` e `diagnostico.jsonl` (saída completa do modelo
+em cada condição). As chamadas ao modelo ficam no cache: repetir o comando não gera custo.
+
 ## 5. Desempenho
 
 - **Índices na GPU.** Com `ollama pull bge-large`, o `prepare` monta os índices do BGE pelo Ollama e confere,
