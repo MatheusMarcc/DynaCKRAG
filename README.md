@@ -57,6 +57,7 @@ python -m ragbench bench   --profile mini        # executa os métodos, em ordem
 python -m ragbench report  --profile mini        # gera os relatórios com o que já terminou
 python -m ragbench ui                            # painel em http://127.0.0.1:8765
 python -m ragbench diagnostico --profile mini    # refaz as falhas de busca e raciocínio com o gabarito no contexto
+python -m ragbench llm-base --profile mini       # baseline: o mesmo gerador sem método e sem recuperação
 ```
 
 O comando `smoke` deve terminar com `smoke OK — 37 jobs`. Uma execução interrompida é retomada ao repetir o
@@ -131,9 +132,9 @@ de compressão.
 - *RAG-Critic.* Três datasets de resposta longa (ASQA, ELI5, WoW), o baseline Self-RAG e duas ablações que
   exigem retreinar o crítico não estão implementados.
 
-**Não consta nos artigos.** O pacote inclui quatro recursos de apoio, identificados como tais nos relatórios: a
+**Não consta nos artigos.** O pacote inclui cinco recursos de apoio, identificados como tais nos relatórios: a
 análise de falhas por pergunta (`FALHAS.md`), o diagnóstico das falhas de busca e de raciocínio (`DIAGNOSTICO.md`),
-a auditoria de formato do RAG-Error Bench e o painel.
+o baseline LLM base (`LLM_BASE.md`), a auditoria de formato do RAG-Error Bench e o painel.
 
 ## Estrutura
 
@@ -153,7 +154,7 @@ tests/         testes automatizados
 ## Testes
 
 ```bash
-python -m pytest -q tests        # 105 testes
+python -m pytest -q tests        # 107 testes
 python -m ragbench smoke         # 37 etapas com LLM simulado
 ```
 

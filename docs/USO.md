@@ -162,18 +162,29 @@ python -m ragbench diagnostico --profile mini                       # todas as f
 python -m ragbench diagnostico --profile mini --metodo dynakrag --alvos raciocinio
 python -m ragbench diagnostico --profile mini --metodo dynakrag --dataset musique --id <id>   # uma pergunta, em detalhe
 python -m ragbench diagnostico --profile mini --criterio f1 --corte 0.5
+python -m ragbench diagnostico --profile mini --criterio lev          # Levenshtein normalizado ≥ 0,7
 ```
 
 Com `--id`, o terminal mostra os documentos de cada condição (★ marca os de suporte), a evidência comprimida do
 DynaKRAG, a saída do modelo, a resposta e as métricas. O id de cada pergunta está em `falhas_por_teste.csv`.
 
-**Critério de acerto.** Padrão: Acc = 1 (o gabarito aparece dentro da resposta, após normalizar), sem usar o EM.
-Alternativas: `em`, ou `f1`, `bleu`, `bleu1`, `rougel` com o corte de `--corte`.
-
 **Métricas** (sobre o texto normalizado, com o máximo entre as respostas de referência): EM e F1 do avaliador do
-SQuAD/HotpotQA; Acc, como no FlashRAG; BLEU (Papineni et al., 2002), calculado como o `sentence_bleu` do sacreBLEU
-(add-k com k = 1, ordem efetiva), e BLEU-1; ROUGE-L F1 (Lin, 2004). Em respostas de 1 a 3 palavras, o BLEU de
-ordem 4 não existe e a penalidade de brevidade domina o valor, o que limita o BLEU como critério de acerto.
+SQuAD/HotpotQA, as métricas dos dois artigos, e duas métricas adicionais: o BLEU (Papineni et al., 2002), calculado
+como o `sentence_bleu` do sacreBLEU (add-k com k = 1, ordem efetiva), e a similaridade de Levenshtein normalizada,
+Lev = 1 − d / max(|resposta|, |gabarito|), com d = distância de Levenshtein em caracteres (inserção, remoção e
+substituição, custo 1). Lev = 1 quando os textos normalizados são iguais e 0 quando não há nada em comum. A
+implementação coincide com a `Levenshtein.normalized_similarity` do rapidfuzz (0 divergências em 5.000 pares
+aleatórios).
+
+**Critério de acerto.** Padrão: BLEU ≥ 0,5 (`--criterio bleu --corte 0.5`). Alternativas: `--criterio em` ou
+`--criterio f1` (corte 0,5) ou `--criterio lev` (corte 0,7), com outro corte por `--corte`. O BLEU mede palavras e sequências em comum, não correção, e não existe um
+corte padrão para respostas curtas. O corte foi calibrado contra julgamento manual dos 161 pares resposta-gabarito
+distintos do diagnóstico do perfil `mini` (qwen2.5:7b): cortes de 0,40 a 0,50 concordaram com o julgamento em
+145 dos 161 pares (90%); o EM = 1, em 141 (88%). Na faixa intermediária, o BLEU erra nos dois sentidos: dá 0,71
+a "Felix Körling" para o gabarito "August Körling" (errada) e 0,00 a "Kairi" para "Kairi in the video game series
+Kingdom Hearts" (certa). Nos mesmos 161 pares, o Lev concordou com o julgamento em 147 (91,3%) com corte 0,7
+(1 falso acerto, 13 falsos erros) e em 141 (87,6%) com corte 0,5 (10 e 10); o Lev também é 0 para "3" e "three".
+O julgamento manual não foi revisado por uma segunda pessoa.
 
 **Rótulo de cada pergunta:**
 
@@ -187,6 +198,22 @@ ordem 4 não existe e a penalidade de brevidade domina o valor, o que limita o B
 Saídas em `ragbench_results/<perfil>/diagnostico/`: `DIAGNOSTICO.md` (contagem dos rótulos, médias das
 métricas por condição e a lista de perguntas), `diagnostico.csv` e `diagnostico.jsonl` (saída completa do modelo
 em cada condição). As chamadas ao modelo ficam no cache: repetir o comando não gera custo.
+
+### Baseline LLM base
+
+O mesmo gerador respondendo às mesmas perguntas sem nenhum método e sem recuperação (só a pergunta, com o prompt
+de resposta sem recuperação do pacote, o mesmo da rota "sem retrieval" do Adaptive-RAG). **Não consta nos
+artigos**: é a referência comum pedida pelo orientador para comparar o RAG-Critic e o DynaKRAG.
+
+```bash
+python -m ragbench llm-base --profile mini                  # datasets dos dois artigos, 30 perguntas cada
+python -m ragbench llm-base --profile mini --datasets hotpotqa musique
+```
+
+Saídas em `ragbench_results/<perfil>/llm_base/`: `<dataset>.jsonl` (uma linha por pergunta), `LLM_BASE.md` e
+`llm_base.csv`. O relatório põe o LLM base ao lado das rodadas já gravadas (Standard RAG, RAG-Critic, melhor
+Fixed-K e DynaKRAG), restritas às mesmas perguntas, com EM, F1, BLEU, Lev e tokens por pergunta. Rodar depois do
+`bench`; repetir o comando só refaz o relatório (as respostas ficam no cache).
 
 ## 5. Desempenho
 

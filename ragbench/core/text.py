@@ -95,36 +95,35 @@ def bleu_score(pred: str, gold: str, max_n: int = 4) -> float:
     return bp * math.exp(sum(logs) / len(logs))
 
 
-def bleu1_score(pred: str, gold: str) -> float:
-    """BLEU-1: precisão de unigramas com a penalidade de brevidade."""
-    return bleu_score(pred, gold, max_n=1)
-
-
-def rougel_score(pred: str, gold: str) -> float:
-    """ROUGE-L F1 (Lin, 2004): maior subsequência comum entre predição e gabarito, em tokens normalizados."""
-    p, g = normalize_answer(pred).split(), normalize_answer(gold).split()
-    if not p or not g:
-        return 0.0
-    prev = [0] * (len(g) + 1)
-    for a in p:
-        cur = [0]
-        for j, b in enumerate(g):
-            cur.append(prev[j] + 1 if a == b else max(prev[j + 1], cur[j]))
+def levenshtein(a: str, b: str) -> int:
+    """Distância de Levenshtein (inserção, remoção e substituição de um caractere, custo 1 cada)."""
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
         prev = cur
-    lcs = prev[-1]
-    if lcs == 0:
-        return 0.0
-    prec, rec = lcs / len(p), lcs / len(g)
-    return 2 * prec * rec / (prec + rec)
+    return prev[-1]
+
+
+def lev_similarity(pred: str, gold: str) -> float:
+    """Similaridade de Levenshtein normalizada: 1 − d / max(|pred|, |gold|), em caracteres, sobre o texto
+    normalizado como no EM e no F1 (minúsculas, sem pontuação, sem artigos). 1 = iguais; 0 = nada em comum."""
+    p, g = normalize_answer(pred), normalize_answer(gold)
+    if not p and not g:
+        return 1.0
+    return 1.0 - levenshtein(p, g) / max(len(p), len(g))
 
 
 def all_scores(pred: str, golds: list[str]) -> dict:
-    """EM, F1, Acc, BLEU, BLEU-1 e ROUGE-L, cada um com o máximo sobre as respostas de referência."""
+    """EM, F1, BLEU e Levenshtein normalizado, cada um com o máximo sobre as respostas de referência."""
     golds = [g for g in (golds or []) if g]
     em, f1 = best_em_f1(pred, golds)
-    best = lambda fn: max((fn(pred, g) for g in golds), default=0.0)  # noqa: E731
-    return {"em": em, "f1": round(f1, 4), "acc": contains_answer(pred, golds), "bleu": round(best(bleu_score), 4),
-            "bleu1": round(best(bleu1_score), 4), "rougel": round(best(rougel_score), 4)}
+    bleu = max((bleu_score(pred, g) for g in golds), default=0.0)
+    lev = max((lev_similarity(pred, g) for g in golds), default=0.0)
+    return {"em": em, "f1": round(f1, 4), "bleu": round(bleu, 4), "lev": round(lev, 4)}
 
 
 # ----------------------------------------------------------------------------- títulos e tokens

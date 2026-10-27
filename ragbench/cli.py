@@ -315,6 +315,18 @@ def cmd_diagnostico(cfg, a):
         print(f"aviso: {note}")
 
 
+def cmd_llm_base(cfg, a):
+    from .llm_base import run
+
+    out = run(cfg, _llm(cfg), a.datasets, a.limite)
+    for ds, rows in out["done"].items():
+        print(f"{ds}: {len(rows)} pergunta(s)")
+    for k, v in out["paths"].items():
+        print(f"{k}: {v}")
+    for note in out["notes"]:
+        print(f"aviso: {note}")
+
+
 def cmd_ui(a):
     """Não passa por ``_setup``: o painel carrega o config de cada perfil conforme você troca no topo da página."""
     from .ui.data import latest_profile
@@ -423,11 +435,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--datasets", nargs="*", help="restringe os datasets de cada método")
     p.add_argument("--id", nargs="+", help="uma ou mais perguntas, mostradas em detalhe (qualquer etapa)")
     p.add_argument("--alvos", nargs="+", default=["busca", "raciocinio"], choices=["busca", "raciocinio"])
-    p.add_argument("--criterio", default="acc", choices=["acc", "em", "f1", "bleu", "bleu1", "rougel"],
-                   help="critério de acerto (padrão: acc, o gabarito aparece na resposta)")
-    p.add_argument("--corte", type=float, default=0.5, help="corte para f1, bleu, bleu1 e rougel")
+    p.add_argument("--criterio", default="bleu", choices=["bleu", "lev", "em", "f1"],
+                   help="critério de acerto (padrão: bleu, com o corte de --corte)")
+    p.add_argument("--corte", type=float, help="corte para bleu, lev e f1 (padrão: bleu 0,5; lev 0,7; f1 0,5)")
     p.add_argument("--limite", type=int, help="testa só as N primeiras perguntas")
     p.set_defaults(fn=cmd_diagnostico)
+
+    p = sub.add_parser("llm-base", help="baseline LLM base: o mesmo gerador sem método e sem recuperação (não consta nos artigos)")
+    _common(p)
+    p.add_argument("--datasets", nargs="*", help="padrão: os datasets dos dois artigos")
+    p.add_argument("--limite", type=int, help="só as N primeiras perguntas de cada dataset")
+    p.set_defaults(fn=cmd_llm_base)
 
     p = sub.add_parser("ui", help="abre o painel no navegador (rodar testes, ver falhas, explorar os dados)")
     p.add_argument("--profile", default=None, choices=PROFILES, help="perfil aberto de início (padrão: o que tem "

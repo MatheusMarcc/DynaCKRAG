@@ -17,7 +17,8 @@ A geração é a do próprio método:
   respostas, então a resposta final do RAG-Critic é a do gerador;
 * DynaKRAG — a etapa final do método: compressão da evidência e resposta (``env.compress`` e ``env.answer``).
 
-Rótulo de cada pergunta, pelo critério de acerto escolhido (padrão: Acc, o gabarito aparece na resposta):
+Rótulo de cada pergunta, pelo critério de acerto escolhido (padrão: BLEU ≥ 0,5; o corte foi calibrado contra
+julgamento manual de 161 pares resposta-gabarito, ver ``docs/USO.md``):
 
 =========================  ==============  ======================================================
 ``suporte``                ``suporte+busca``  rótulo
@@ -48,8 +49,12 @@ METHOD_NAMES = {"ragcritic": "RAG-Critic", "dynakrag": "DynaKRAG"}
 FALLBACK = {"ragcritic": "ragcritic/standard_rag"}      # documentos do RAG-Critic = os do Standard RAG
 TARGETS = ("busca", "raciocinio")
 CONDITIONS = ("suporte", "suporte+busca")
-METRICS = ("em", "f1", "acc", "bleu", "bleu1", "rougel")
-METRIC_NAMES = {"em": "EM", "f1": "F1", "acc": "Acc", "bleu": "BLEU", "bleu1": "BLEU-1", "rougel": "ROUGE-L"}
+METRICS = ("em", "f1", "bleu", "lev")           # EM e F1 são as métricas dos artigos; BLEU e Levenshtein são as adicionais
+METRIC_NAMES = {"em": "EM", "f1": "F1", "bleu": "BLEU", "lev": "Lev"}
+CORTE_PADRAO = 0.5
+# corte padrão de cada critério, calibrado contra o julgamento manual de 161 pares resposta-gabarito do perfil mini
+# (7B): BLEU ≥ 0,5 concorda em 145 (90,1%); Levenshtein normalizado ≥ 0,7 em 147 (91,3%); EM = 1 em 141 (87,6%)
+CORTES = {"bleu": 0.5, "f1": 0.5, "lev": 0.7}
 STAGE_NAMES = {"busca": "busca", "raciocinio": "raciocínio"}
 LABELS = {
     (True, True): "resolve com os documentos certos",
@@ -61,17 +66,17 @@ _WORD = re.compile(r"\w+")
 
 
 # ============================================================================ critério de acerto
-def is_ok(scores: dict, criterio: str = "acc", corte: float = 0.5) -> bool:
-    """Acerto pelo critério escolhido: ``em``/``acc`` valem 0 ou 1; as demais métricas usam o corte."""
+def is_ok(scores: dict, criterio: str = "bleu", corte: float | None = None) -> bool:
+    """Acerto pelo critério escolhido: ``em`` vale 0 ou 1; ``f1``, ``bleu`` e ``lev`` usam o corte (padrão: CORTES)."""
+    corte = CORTES.get(criterio, CORTE_PADRAO) if corte is None else corte
     v = float(scores.get(criterio, 0.0))
-    return v >= 1.0 if criterio in ("em", "acc") else v >= corte
+    return v >= 1.0 if criterio == "em" else v >= corte
 
 
-def criterio_text(criterio: str, corte: float) -> str:
-    if criterio == "acc":
-        return "Acc = 1 (o gabarito aparece dentro da resposta, após normalizar)"
+def criterio_text(criterio: str, corte: float | None) -> str:
     if criterio == "em":
         return "EM = 1"
+    corte = CORTES.get(criterio, CORTE_PADRAO) if corte is None else corte
     return f"{METRIC_NAMES[criterio]} ≥ {str(corte).replace('.', ',')}"
 
 
@@ -208,7 +213,7 @@ def select_cases(cfg: dict, methods: list[str], datasets: list[str] | None, targ
 
 
 # ============================================================================ uma pergunta
-def run_case(cfg: dict, llm, case: dict, criterio: str = "acc", corte: float = 0.5) -> dict:
+def run_case(cfg: dict, llm, case: dict, criterio: str = "bleu", corte: float | None = None) -> dict:
     rec, m, ds = case["rec"], case["method"], case["dataset"]
     golds = rec.get("answers") or []
     gold = gold_docs(rec, case["corpus"])
@@ -281,12 +286,14 @@ def write_report(cfg: dict, results: list[dict], notes: list[str], criterio: str
           "* **suporte** — só os parágrafos de suporte do gabarito;",
           "* **suporte+busca** — os documentos que o método recuperou, com os parágrafos de suporte que faltavam no "
           "lugar dos últimos documentos que não são de suporte.", "",
-          f"**Critério de acerto:** {criterio_text(criterio, corte)}. O EM não é usado como critério.", "",
-          "**Métricas:** EM e F1 (avaliador do SQuAD/HotpotQA); Acc (o gabarito aparece na resposta, como no "
-          "FlashRAG); BLEU (Papineni et al., 2002), calculado como o `sentence_bleu` do sacreBLEU (suavização add-k "
-          "com k = 1 e ordem efetiva), e BLEU-1; "
-          "ROUGE-L F1 (Lin, 2004). Todas sobre o texto normalizado, com o máximo entre as respostas de referência. "
-          "Em respostas de 1 a 3 palavras, o BLEU de ordem 4 não existe e a penalidade de brevidade domina o valor.", ""]
+          f"**Critério de acerto:** {criterio_text(criterio, corte)}.", "",
+          "**Métricas:** EM e F1 (avaliador do SQuAD/HotpotQA, as métricas dos dois artigos) e, como métrica "
+          "adicional, o BLEU (Papineni et al., 2002), calculado como o `sentence_bleu` do sacreBLEU (suavização "
+          "add-k com k = 1 e ordem efetiva). Todas sobre o texto normalizado, com o máximo entre as respostas de "
+          "referência. Também como adicional, a similaridade de Levenshtein normalizada (Lev = 1 − d / maior "
+          "comprimento, em caracteres, sobre o mesmo texto normalizado). As duas medem texto em comum, não correção: "
+          "contra o julgamento manual de 161 pares resposta-gabarito do perfil mini, BLEU ≥ 0,5 concordou em 90,1%, "
+          "Lev ≥ 0,7 em 91,3% e EM = 1 em 87,6%.", ""]
     for m in [k for k in METHODS if any(r["method"] == k for r in results)]:
         rs = [r for r in tested if r["method"] == m]
         md += [f"## {METHOD_NAMES[m]}", ""]
@@ -342,7 +349,7 @@ def write_report(cfg: dict, results: list[dict], notes: list[str], criterio: str
 
 # ============================================================================ entrada
 def run(cfg: dict, llm, methods: list[str], datasets: list[str] | None = None, targets: list[str] = TARGETS,
-        ids: list[str] | None = None, criterio: str = "acc", corte: float = 0.5, limit: int | None = None) -> dict:
+        ids: list[str] | None = None, criterio: str = "bleu", corte: float | None = None, limit: int | None = None) -> dict:
     log = get_logger()
     cases, notes = select_cases(cfg, methods, datasets, list(targets), ids)
     if limit:
